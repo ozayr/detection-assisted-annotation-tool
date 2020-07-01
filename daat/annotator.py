@@ -19,7 +19,7 @@ class DAAT():
         self.do_augmentations = init_params['do_augmentations']
         self.convert_to_coco = init_params['convert_to_coco']
         self.test_train_split = init_params['test_train_split']
-        self.test_size = init_params['test_size']
+        self.test_size = float(init_params['test_size'])
         self.ok = 0
         self.class_map = {}
 
