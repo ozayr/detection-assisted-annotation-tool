@@ -1,6 +1,7 @@
 # UTILITTIES
 import random
 import tkinter as tk
+tk.Tk().withdraw()
 from pascal_voc_writer import Writer
 
 import numpy as np
@@ -95,7 +96,7 @@ def pad_image(image,x,y,radius):
     if (x+radius>w):
         image = cv2.copyMakeBorder( image, 0, 0, 0, abs(w-(x+radius)), cv2.BORDER_CONSTANT,value = [0,0,0])
     if (y+radius>h):
-        image = cv2.copyMakeBorder( image, 0,  abs(h-(x+radius)), 0,0, cv2.BORDER_CONSTANT,value = [0,0,0])
+        image = cv2.copyMakeBorder( image, 0,  abs(h-(y+radius)), 0,0, cv2.BORDER_CONSTANT,value = [0,0,0])
     return image,x,y
 
 def get_zoom_box(image,x,y,radius = 100):
@@ -135,9 +136,9 @@ def get_aug_policy():
     aug_policy_container = policies.PolicyContainer(
         [
             [policies.POLICY_TUPLE(name='flip', probability=1.0, magnitude=1)],
-            [policies.POLICY_TUPLE(name='translate', probability=1.0, magnitude=20)],
+            [policies.POLICY_TUPLE(name='translate', probability=1.0, magnitude=40)],
             [policies.POLICY_TUPLE(name='scale', probability=1.0, magnitude=0.4)],
-#             [policies.POLICY_TUPLE(name='rotate', probability=1.0, magnitude=30)],
+             [policies.POLICY_TUPLE(name='rotate', probability=1.0, magnitude=30)],
 #             [policies.POLICY_TUPLE(name='motion', probability=1.0, magnitude=7)]
 
         ],
@@ -149,18 +150,21 @@ def get_aug_policy():
 #             'motion':motion
         }
     )
-    return aug_policy_container
+    #return aug_policy_container
+    return policies.PolicyContainer(policies.policies_v0())
 
 
 def get_augmentations(xml_files,classes_dict,annotations_dir):
     
-    aug_image_dir =  os.path.join('/'.join(annotations_dir.split('/')[:-1]),'augmented_images')
-    aug_xml_dir =  os.path.join('/'.join(annotations_dir.split('/')[:-1]),'augmented_annotations')
+    #aug_image_dir =  os.path.join('/'.join(annotations_dir.split('/')[:-1]),'augmented_images')
+    #aug_xml_dir =  os.path.join('/'.join(annotations_dir.split('/')[:-1]),'augmented_annotations')
     
-    check_dir(aug_image_dir)
-    check_dir(aug_xml_dir)
+    image_dir = '/'.join(annotations_dir.split('/')[:-1])
+
+    #check_dir(aug_image_dir)
+    #check_dir(aug_xml_dir)
     
-    for f,x in zip(glob(f'{aug_image_dir}/*.jpg'),glob(f'{aug_xml_dir}/*.xml')):
+    for f,x in zip(glob(f'{image_dir}/aug_*.jpg'),glob(f'{annotations_dir}/aug_*.xml')):
         os.remove(f)
         os.remove(x)
     
@@ -181,9 +185,9 @@ def get_augmentations(xml_files,classes_dict,annotations_dir):
         # Only return the augmented image and bounded boxes if there are
         # boxes present after the image augmentation
         if bbs_aug.size > 0:
-            image_name = f'{aug_image_dir}/aug_{os.path.basename(image_path)}'
+            image_name = f'{image_dir}/aug_{os.path.basename(image_path)}'
             cv2.imwrite(image_name,img_aug)      
-            xml_file_name = write2voc(image_path,bbs_aug,categories,aug_xml_dir,pre_fix='aug_')
+            xml_file_name = write2voc(image_path,bbs_aug,categories,annotations_dir,pre_fix='aug_')
             aug_xml_files.append(xml_file_name)
         
     return aug_xml_files
@@ -306,25 +310,38 @@ def write_to_coco(xml_files, json_file,categories):
 
 
     
-def get_test_train_split(xml_files,classes,classes_dict,test_size):
+def get_test_train_split(xml_files,classes,classes_dict,test_size,test_train_split):
     
-    label_array = np.zeros((len(xml_files),len(classes)))
     
-    for i,file in enumerate(xml_files):
-       labels,_,_ = read_content(file)
-       sparse_labels = list(map(lambda x : classes_dict[x] ,labels))
-       label_array[i,sparse_labels] = 1
+    if test_train_split == 'stratified':
+        
+        label_array = np.zeros((len(xml_files),len(classes)))
 
-    kf = IterativeStratification(n_splits = int(1/test_size) )
-    train,test = next(kf.split(xml_files,label_array))
+        for i,file in enumerate(xml_files):
+           labels,_,_ = read_content(file)
+           sparse_labels = list(map(lambda x : classes_dict[x] ,labels))
+           label_array[i,sparse_labels] = 1
+
+        kf = IterativeStratification(n_splits = int(1/test_size) )
+        train,test = next(kf.split(xml_files,label_array))
+
+        train_xml_files = np.array(xml_files)[train].tolist()
+        test_xml_files = np.array(xml_files)[test].tolist()
+
+        return train_xml_files,test_xml_files
     
-    train_xml_files = np.array(xml_files)[train].tolist()
-    test_xml_files = np.array(xml_files)[test].tolist()
-    
-    return train_xml_files,test_xml_files
+    elif test_train_split == 'sequential':
+        
+        xml_files = sorted(xml_files,key = lambda x: int(''.join(filter(str.isdigit, os.path.basename(x)))))
+        split = int(len(xml_files)*(1-test_size))
+        train_xml_files = np.array(xml_files)[:split].tolist()
+        test_xml_files = np.array(xml_files)[split:].tolist()
+        
+        return train_xml_files,test_xml_files
+        
     
 
-def voc2coco(annotations_dir,classes,do_augmentations,test_train_split=False,test_size = 0.25):
+def voc2coco(annotations_dir,classes,do_augmentations,test_train_split='',test_size = 0.25):
     '''
     function does a stratified split between all classes into test and train sets and saves as coco .json format
     args:
@@ -347,7 +364,7 @@ def voc2coco(annotations_dir,classes,do_augmentations,test_train_split=False,tes
     if (len(xml_files) >= int(1/test_size)) and test_train_split:
         
         
-        train_xml_files,test_xml_files = get_test_train_split(xml_files,classes,classes_dict,test_size)
+        train_xml_files,test_xml_files = get_test_train_split(xml_files,classes,classes_dict,test_size,test_train_split)
         # take train xml files add augmentations get aug xml files add to train xml files
         if do_augmentations:
             train_xml_files += get_augmentations(train_xml_files,classes_dict,annotations_dir)
@@ -370,6 +387,8 @@ def voc2coco(annotations_dir,classes,do_augmentations,test_train_split=False,tes
         print(f'please annotate more than {int(1/test_size)} images for the specified test_size of {test_size},coco conversion not done')
     
     else:
+         if do_augmentations:
+            xml_files += get_augmentations(xml_files,classes_dict,annotations_dir)
          write_to_coco(xml_files, os.path.join(annotations_dir,'coco.json'),classes_dict)
         
         

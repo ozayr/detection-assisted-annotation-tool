@@ -18,11 +18,17 @@ class DAAT():
         self.edit_mode = init_params['edit_mode']
         self.do_augmentations = init_params['do_augmentations']
         self.convert_to_coco = init_params['convert_to_coco']
-        self.test_train_split = init_params['test_train_split']
+        
+        if init_params['test_train_split']:
+            self.test_train_split = 'stratified' if init_params['stratified'] else 'sequential'
+        else:
+            self.test_train_split = False
+
+        self.sequential = init_params['sequential']
         self.test_size = float(init_params['test_size'])
         self.ok = 0
+        
         self.class_map = {}
-
         try:
             file = open(os.path.join(__location__, 'class_map'), 'rb')
             class_map = pickle.load(file)
@@ -36,7 +42,7 @@ class DAAT():
 
         if not class_map:
             if not self.class_map:
-                self.class_map = {(i + 48): self.model_classes[i] for i in range(10)}
+                self.class_map = {(i + 48): self.model_classes[i] for i,_ in enumerate(self.model_classes)}
         elif class_map:
             self.class_map = class_map
 
@@ -58,7 +64,7 @@ class DAAT():
             self.color_dict = dict(zip(self.model_classes, get_distinct_colors(len(self.model_classes))))
         else:
             self.color_dict = dict(zip(self.model_classes, get_distinct_colors(len(self.model_classes))))
-
+        print(self.color_dict)
         self.annotations_dir = f'{self.image_dir}/annotations'
         check_dir(self.annotations_dir)
 
@@ -159,21 +165,11 @@ class DAAT():
         file.close()
 
         classes = list(map(lambda x: " ".join(x.strip().split()[:-1]), class_report))
-
+        #classes = ['airplane', 'bench', 'bill board', 'bus', 'car', 'light pole', 'motorcycle', 'person', 'sign', 'traffic light', 'truck']
         if self.convert_to_coco:
             voc2coco(self.annotations_dir, classes, self.do_augmentations, self.test_train_split, self.test_size)
 
-        elif not self.convert_to_coco and self.do_augmentations:
-
-            classes_dict = {v: k for k, v in enumerate(classes)}
-            xml_files = glob(f'{self.annotations_dir}/*.xml')
-
-            if self.test_train_split:
-                train_xml_files, test_xml_files = get_test_train_split(xml_files, classes, classes_dict, self.test_size)
-                _ = get_augmentations(xml_files, classes_dict, self.annotations_dir)
-            #                             TODO
-            else:
-                _ = get_augmentations(xml_files, classes_dict, self.annotations_dir)
+    
 
     def annotate(self, image_path):
         '''
@@ -325,7 +321,7 @@ class DAAT():
             elif key == ord('n'):
 
                 new_class = add_new_class_screen()
-                if new_class not in ('', None):
+                if new_class not in ('', None, 0):
                     instance_buffer = new_class
                     self.model_classes.append(new_class)
                     self.color_dict = dict(zip(self.model_classes, get_distinct_colors(len(self.model_classes))))
@@ -391,7 +387,7 @@ class DAAT():
 
             elif key == ord('a'):
 
-                class_map = assign_hotkey_screen(self.model_classes)
+                class_map = assign_hotkey_screen(self.model_classes,self.class_map)
                 self.class_map = class_map if class_map else self.class_map
 
 
